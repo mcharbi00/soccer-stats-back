@@ -1,103 +1,73 @@
-var express = require('express');
-var router = express.Router();
-const User = require ("../models/User");
+const express = require('express');
+const bcrypt = require("bcrypt");
+const User = require('../models/user');
 
-router.get('/', async(_, res) => {
+const router = express.Router();
+
+// route for user registration
+router.post("/inscription", async (req, res) => {
     try {
-        let users = await User.find();
-        users = users.map((user) => {
-            return {
-                id: user.id,
-                firstname: user.firstname,
-                username: user.username,
-                email: user.email,
-            };
-        });
-        res.json(users); 
-    } catch (err) {
-        res.status(500).json(err);
-    }
-});
+        const { username, firstname, email, password } = req.body;
 
-router.get('/:id', async(req, res) => {
-    const { id } = req.params;
-    try {
-        let user = await User.findById(id);
-
-        if(!user) {
-            res.status(404).json({message: "User not found."});
+        // validate user input
+        if (!username || !firstname || !email || !password) {
+            return res.status(400).send("missing required fields");
         }
 
-        res.json({
-            id: user.id,
-            firstname: user.firstname,
-            username: user.username,
-            email: user.email,
-        });
-    } catch (err) {
-        res.status(500).json(err);
-    }
-});
+        // check if user already exists
+        const user = await User.findOne({ email });
+        if (user) {
+            return res.status(409).send("user already exists");
+        }
 
-router.post('/register', async(req, res) => {
-    const { firstname, username, email, password } = req.body;
-    
-    try {
+        // hash the password
+        const hashedPassword = await bcrypt.hash(password, 10);
 
+        // create new user
         const newUser = new User({
-            firstname: firstname,
-            username: username,
-            email: email,
-            password: password,
+            username,
+            firstname,
+            email,
+            password: hashedPassword
         });
 
+        // save new user to the database
         await newUser.save();
 
-        res.status(201).json({ message: "User created successfully."});
-
+        res.send("user registration successfull");
     } catch (err) {
-        res.status(500).json(err);
+        res.status(500).send(err);
     }
 });
 
-router.patch("/:id", async(req, res) => {
-    const filter = {id: req.params.id};
-
-    const updates = {
-        firstname: req.body.firstname,
-        username: req.body.username,
-        email: req.body.email,
-    };
-
+// route for user login
+router.post("/login", async (req, res) => {
     try {
-        await User.findOneAndUpdate(filter, updates);
-        const user = await User.findById(req.params.id);
+        const { email, password } = req.body;
 
-        if(!user) {
-            res.status(404).json({message: "User not found."});
+        // validate user input
+        if (!email || !password) {
+            return res.status(400).send("missing required fields");
         }
 
-        res.status(200).json(user);
-    
-    } catch (err) {
-
-    }
-});
-
-router.delete("/:id", async(req, res) => {
-    const filter = {id: req.params.id};
-
-    try {
-        const user = await User.findById(req.params.id);
-           if(!user) {
-            res.status(404).json({message: "User not found."});
+        // check if user exists
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).send("user not found");
         }
-        await User.findOneAndDelete(filter);
-        
-        res.status(200).json({message: "User deleted."});
-    
+
+        // compare password
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).send("invalid email or password");
+        }
+
+        // set user session
+        req.session.user = user;
+        res.redirect('/secure');
+
     } catch (err) {
-        res.status(500).json({ message: err});
+        res.status(500).send(err);
     }
 });
 
