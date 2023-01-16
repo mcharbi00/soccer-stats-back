@@ -1,74 +1,174 @@
-const express = require('express');
-const bcrypt = require("bcrypt");
-const User = require('../models/user');
-
+const express = require("express");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
 const router = express.Router();
+const crypto = require("crypto");
 
-// route for user registration
+require('dotenv').config();
+const auth = require('../middleware/auth');
+
+
 router.post("/inscription", async (req, res) => {
     try {
+        // Récupération des données de l'utilisateur
         const { username, firstname, email, password } = req.body;
 
-        // validate user input
+        // Validation des champs
         if (!username || !firstname || !email || !password) {
-            return res.status(400).send("missing required fields");
+            return res.status(400).send("Des champs obligatoires manquent");
         }
 
-        // check if user already exists
-        const user = await User.findOne({ email });
-        if (user) {
-            return res.status(409).send("user already exists");
+        // Vérifier si l'utilisateur existe déjà
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(409).send("Cet email est déjà utilisé");
         }
 
-        // hash the password
+        // Hash le mot de passe
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // create new user
+        // Génération de la clé secrète
+        const secret = crypto.randomBytes(16).toString("hex");
+
+        // Création d'un nouvel utilisateur
         const newUser = new User({
             username,
             firstname,
             email,
-            password: hashedPassword
+            password: hashedPassword,
+            secret,
+            role: 'joueur'
         });
-
-        // save new user to the database
         await newUser.save();
 
-        res.send("user registration successfull");
+        // Envoi d'un message de succès
+        res.send("Inscription réussie");
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("Une erreur serveur est survenue");
+    }
+});
+router.get('/', async (_, res) => {
+    try {
+        let users = await User.find();
+        users = users.map((user) => {
+            return {
+                id: user.id,
+                username: user.username,
+                firstname: user.firstname,
+                email: user.email,
+            };
+        });
+        res.json(users);
     } catch (err) {
-        res.status(500).send(err);
+        res.status(500).json(err);
     }
 });
 
-// route for user login
+router.get('/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        let user = await User.findById(id);
+
+        if (!user) {
+            res.status(404).json({ message: "User not found." })
+        }
+
+        res.json({
+            id: user.id,
+            username: user.username,
+            firstname: user.firstname,
+            email: user.email,
+        });
+    } catch (err) {
+        res.status(500).json(err);
+    }
+});
+
+router.patch('/:id', async (req, res) => {
+    const filter = { id: req.params.id };
+
+    const updates = {
+        username: req.body.username,
+        firstname: req.body.firstname,
+        email: req.body.email,
+    };
+
+    try {
+
+        const user = await User.findById(filter);
+        if (!user) {
+            res.status(404).json({ message: "User not found." });
+        }
+
+        await User.findOneAndUpdate(filter, updates);
+
+
+        res.status(200).json({ message: "User modified." });
+    } catch (err) {
+        res.status(500).json({ message: err });
+    }
+});
+
 router.post("/login", async (req, res) => {
     try {
         const { email, password } = req.body;
-
-        // validate user input
+        // Validate fields
         if (!email || !password) {
-            return res.status(400).send("missing required fields");
+            return res.status(400).send("Missing required fields");
         }
-
-        // check if user exists
+        // Check if user with email exists
         const user = await User.findOne({ email });
         if (!user) {
-            return res.status(404).send("user not found");
+            return res.status(401).send("Invalid email or password");
         }
-
-        // compare password
+        // Compare passwords
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            return res.status(401).send("invalid email or password");
+            return res.status(401).send("Invalid email or password");
         }
-
-        // set user session
-        req.session.user = user;
-        res.redirect('/secure');
-
-    } catch (err) {
-        res.status(500).send(err);
+        // Create and assign JWT
+        const token = jwt.sign({ id: user._id, role: user.role, secret: user.secret }, process.env.JWT_SECRET, {
+            expiresIn: '1d'
+        });
+        res.json({
+            token,
+            user: {
+                id: user._id,
+                username: user.username,
+                firstname: user.firstname,
+                email: user.email,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).send("Internal Server Error");
     }
 });
+
+router.get("/validate", async (req, res) => {
+    try {
+        const token = req.headers.authorization.split(" ")[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.id);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        res.status(200).json({
+            id: user._id,
+            username: user.username,
+            firstname: user.firstname,
+            email: user.email,
+            role: user.role
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(401).json({ message: "Unauthorized" });
+    }
+});
+
 
 module.exports = router;

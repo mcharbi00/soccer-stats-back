@@ -6,6 +6,7 @@ const database = require('./config/database');
 const bcrypt = require("bcrypt")
 const userRoutes = require('./routes/user');
 const bodyParser = require("body-parser");
+const cors = require("cors");
 
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/user');
@@ -13,7 +14,9 @@ var usersRouter = require('./routes/user');
 
 var app = express();
 app.use(bodyParser.json());
-
+app.use(cors({
+  origin: "http://localhost:3000"
+}));
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
