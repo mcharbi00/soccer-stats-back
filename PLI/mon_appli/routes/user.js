@@ -8,15 +8,45 @@ const crypto = require("crypto");
 require('dotenv').config();
 const auth = require('../middleware/auth');
 
+router.get("/me", async (req, res) => {
+    try {
+        // Get the token from the headers
+        const token = req.headers.authorization;
+        if (!token) {
+            return res.status(401).send("Unauthorized");
+        }
+
+        // Verify the token
+        jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+            if (err) {
+                return res.status(401).send("Unauthorized");
+            }
+            // Find the user with the id in the decoded token
+            User.findById(decoded.id, (err, user) => {
+                if (err) {
+                    return res.status(500).send("Internal server error");
+                }
+                if (!user) {
+                    return res.status(404).send("User not found");
+                }
+                // Return the user data
+                return res.json(user);
+            });
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).send("Internal Server Error");
+    }
+});
 
 router.post("/inscription", async (req, res) => {
     try {
         // Récupération des données de l'utilisateur
-        const { username, firstname, email, password } = req.body;
+        const { lastname, firstname, email, password, profileImageUrl, dateOfBirth, role, club } = req.body;
 
         // Validation des champs
-        if (!username || !firstname || !email || !password) {
-            return res.status(400).send("Des champs obligatoires manquent");
+        if (!firstname || !email || !password) {
+            return res.status(400).send(req.body, "Des champs obligatoires manquent");
         }
 
         // Vérifier si l'utilisateur existe déjà
@@ -33,12 +63,15 @@ router.post("/inscription", async (req, res) => {
 
         // Création d'un nouvel utilisateur
         const newUser = new User({
-            username,
+            lastname,
             firstname,
             email,
             password: hashedPassword,
             secret,
-            role: 'joueur'
+            dateOfBirth,
+            role,
+            profileImageUrl,
+            club
         });
         await newUser.save();
 
@@ -46,7 +79,7 @@ router.post("/inscription", async (req, res) => {
         res.send("Inscription réussie");
     } catch (error) {
         console.error(error);
-        res.status(500).send("Une erreur serveur est survenue");
+        res.status(500).send(error);
     }
 });
 router.get('/', async (_, res) => {
